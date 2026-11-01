@@ -371,7 +371,14 @@ def _pojmenuj(df: pd.DataFrame, vychozi: str | None = None) -> pd.DataFrame:
         zbyle = [c for c in df.columns[1:] if c not in mapa]
         if zbyle:
             mapa[zbyle[0]] = vychozi
-    return df.rename(columns=mapa)
+    df = df.rename(columns=mapa)
+    # Export 1/4 diagramu má status zvlášť pro odběr i přetok → sloučit do jednoho (horší vyhrává);
+    # z případných dalších duplicit nechat první sloupec.
+    if list(df.columns).count("status") > 1:
+        st = df.loc[:, df.columns == "status"].astype(str)
+        sloucene = st.apply(lambda r: next((x for x in r if x not in ("naměřená data OK", "nan", "")), r.iloc[0]), axis=1)
+        df = df.loc[:, df.columns != "status"].assign(status=sloucene)
+    return df.loc[:, ~df.columns.duplicated()]
 
 
 def _cas_a_cisla(df: pd.DataFrame, sloupce: list[str]) -> pd.DataFrame:
