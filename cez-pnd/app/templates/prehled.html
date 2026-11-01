@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block obsah %}
+{% if bezi %}<meta http-equiv="refresh" content="5">{% endif %}
+<h1>Stahování dat z ČEZ Distribuce (PND)</h1>
+
+{% if chybi %}
+<div class="karta upozorneni">Chybí proměnné prostředí: <b>{{ chybi|join(', ') }}</b>. Doplňte je do <code>.env</code> a restartujte kontejner.</div>
+{% endif %}
+
+{% for kat, z in get_flashed_messages(with_categories=true) %}
+<div class="karta {{ 'upozorneni' if kat == 'chyba' else '' }}"><span class="{{ kat }}">{{ z }}</span></div>
+{% endfor %}
+
+<div class="mrizka">
+  <div class="karta">
+    <h2>Plán</h2>
+    <div>Další běh: <b>{{ dalsi.strftime('%d.%m.%Y %H:%M') if dalsi else '—' }}</b></div>
+    <div class="sede">cron „{{ plan }}“, stahuje se vždy včerejší den</div>
+  </div>
+  <div class="karta">
+    <h2>Excel</h2>
+    {% if excel %}
+      <a href="{{ url_for('excel') }}">Stáhnout cez_data.xlsx</a>
+      <div class="sede">{{ (excel.st_size/1024)|round(1) }} kB</div>
+    {% else %}<div class="sede">Zatím nevznikl.</div>{% endif %}
+  </div>
+  <div class="karta">
+    <h2>Spustit teď</h2>
+    <form method="post" action="{{ url_for('spustit') }}">
+      <input type="date" name="od" value="{{ vcera }}" required>
+      <input type="date" name="do" value="{{ vcera }}">
+      <button {% if bezi %}disabled{% endif %}>{{ 'Běží…' if bezi else 'Stáhnout' }}</button>
+    </form>
+  </div>
+</div>
+
+<div class="mrizka">
+  <div class="karta">
+    <h2>Měsíční výstupy</h2>
+    <form method="post" action="{{ url_for('mesicni') }}" enctype="multipart/form-data" style="display:grid;gap:8px">
+      <label>Měsíc <input type="month" name="mesic" value="{{ minuly }}" required></label>
+      <label>Energetická bilance FVE (xlsx z monitoringu) <input type="file" name="bilance" accept=".xlsx"></label>
+      <label>Faktura dodavatel síť, Kč (nepovinné) <input type="text" name="faktura" inputmode="decimal"></label>
+      <label>Koeficient <input type="text" name="koeficient" value="1,04" inputmode="decimal" style="width:6em"></label>
+      <div><button>Vytvořit PND Excel + PDF</button></div>
+      <div class="sede">Bez bilance FVE se vytvoří jen PND_RRRR_MM.xlsx. Ten se navíc vytváří sám každého 2. dne v měsíci.</div>
+    </form>
+  </div>
+  <div class="karta">
+    <h2>Vytvořené soubory</h2>
+    {% for p in vystupy[:12] %}
+      <div><a href="{{ url_for('vystup', nazev=p.name) }}">{{ p.name }}</a></div>
+    {% else %}<div class="sede">Zatím žádné.</div>{% endfor %}
+    <h2 style="margin-top:16px">Nahrát export z PND ručně</h2>
+    <form method="post" action="{{ url_for('nahrat_pnd') }}" enctype="multipart/form-data">
+      <input type="file" name="pnd" accept=".csv,.xlsx" required> <button>Nahrát</button>
+    </form>
+    <div class="sede">Záloha pro případ, že automatické stažení selže.</div>
+  </div>
+</div>
+
+<div class="karta">
+  <h2>Historie běhů</h2>
+  <div class="tab"><table>
+    <tr><th>#</th><th>Začátek</th><th>Trvání</th><th>Spustil</th><th>Období</th><th>Stav</th><th>Čtvrthodin</th><th>Soubor</th><th>Zpráva</th></tr>
+    {% for b in behy %}
+    <tr>
+      <td><a href="{{ url_for('detail', beh_id=b.id) }}">{{ b.id }}</a></td>
+      <td>{{ b.zacatek.replace('T', ' ') }}</td>
+      <td>{% if b.konec %}{{ ((b.konec|todt) - (b.zacatek|todt)).seconds }} s{% endif %}</td>
+      <td>{{ b.spustil }}</td>
+      <td>{{ b.obdobi_od }}{% if b.obdobi_do != b.obdobi_od %} – {{ b.obdobi_do }}{% endif %}</td>
+      <td class="stav {{ b.stav }}">{{ {'ok':'OK','chyba':'chyba','bezi':'běží'}[b.stav] }}</td>
+      <td>{{ b.radku if b.radku is not none else '' }}</td>
+      <td>{% if b.soubor %}<a href="{{ url_for('csv', nazev=b.soubor) }}">{{ b.soubor }}</a>{% endif %}</td>
+      <td class="sede">{{ (b.zprava or '')[:80] }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="sede">Zatím žádný běh.</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endblock %}

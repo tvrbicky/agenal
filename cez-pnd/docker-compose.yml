@@ -1,0 +1,11 @@
+services:
+  cez-pnd:
+    build: .
+    container_name: cez-pnd
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data          # Excel, CSV, SQLite s logy, screenshoty
+    ports:
+      - "127.0.0.1:8080:8080" # ven jen přes reverzní proxy s HTTPS (viz README)
+    shm_size: "1gb"           # Chromium potřebuje víc sdílené paměti

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ČEZ data – {% block titulek %}přehled{% endblock %}</title>
+<style>
+  :root { --bg:#f6f7f9; --karta:#fff; --text:#1d2330; --sede:#6b7280; --okraj:#e3e6eb;
+          --ok:#15803d; --chyba:#b91c1c; --bezi:#b45309; --akce:#1d4ed8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --karta:#1d2128; --text:#e6e8eb; --sede:#9aa1ab; --okraj:#2d323b;
+            --ok:#4ade80; --chyba:#f87171; --bezi:#fbbf24; --akce:#60a5fa; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 system-ui, sans-serif }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px }
+  h1 { font-size:22px; margin:0 0 16px } h2 { font-size:17px; margin:0 0 12px }
+  a { color:var(--akce) }
+  .karta { background:var(--karta); border:1px solid var(--okraj); border-radius:10px; padding:16px; margin-bottom:16px }
+  .mrizka { display:grid; gap:16px; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)) }
+  .sede { color:var(--sede); font-size:13px }
+  table { width:100%; border-collapse:collapse } .tab { overflow-x:auto }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--okraj); white-space:nowrap }
+  th { font-size:12px; color:var(--sede); font-weight:600 }
+  .stav { font-weight:600 } .ok { color:var(--ok) } .chyba { color:var(--chyba) } .bezi { color:var(--bezi) }
+  .ERROR { color:var(--chyba) } .WARN { color:var(--bezi) }
+  input, button { font:inherit; padding:6px 10px; border-radius:6px; border:1px solid var(--okraj); background:var(--karta); color:var(--text) }
+  button { background:var(--akce); color:#fff; border:0; cursor:pointer } button:disabled { opacity:.5 }
+  pre { white-space:pre-wrap; word-break:break-word; margin:0; font-size:13px }
+  .upozorneni { border-color:var(--chyba) }
+  img { max-width:100%; border:1px solid var(--okraj); border-radius:6px }
+</style>
+</head>
+<body><main>{% block obsah %}{% endblock %}</main></body>
+</html>

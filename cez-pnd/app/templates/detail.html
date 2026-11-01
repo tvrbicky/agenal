@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulek %}běh {{ beh.id }}{% endblock %}
+{% block obsah %}
+{% if beh.stav == 'bezi' %}<meta http-equiv="refresh" content="3">{% endif %}
+<p><a href="{{ url_for('prehled') }}">← zpět</a></p>
+<h1>Běh #{{ beh.id }} <span class="stav {{ beh.stav }}">{{ {'ok':'OK','chyba':'chyba','bezi':'běží'}[beh.stav] }}</span></h1>
+<div class="karta">
+  <div>Období: <b>{{ beh.obdobi_od }} – {{ beh.obdobi_do }}</b> · spustil: {{ beh.spustil }}</div>
+  <div class="sede">{{ beh.zacatek.replace('T',' ') }} → {{ (beh.konec or '…').replace('T',' ') }}</div>
+  {% if beh.soubor %}<div>Soubor: <a href="{{ url_for('csv', nazev=beh.soubor) }}">{{ beh.soubor }}</a> ({{ beh.radku }} čtvrthodin)</div>{% endif %}
+  {% if beh.zprava %}<div class="chyba">{{ beh.zprava }}</div>{% endif %}
+</div>
+
+<div class="karta">
+  <h2>Log</h2>
+  <div class="tab"><table>
+    {% for r in log %}
+    <tr><td class="sede">{{ r.cas[11:] }}</td><td class="{{ r.uroven }}">{{ r.uroven }}</td><td><pre>{{ r.text }}</pre></td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+{% if snimky %}
+<div class="karta">
+  <h2>Snímky z portálu</h2>
+  {% for n in snimky %}
+    {% if n.endswith('.png') %}
+      <p><b>{{ n }}</b> · <a href="{{ url_for('debug', beh_id=beh.id, nazev=n[:-4] ~ '.html') }}">HTML</a></p>
+      <img src="{{ url_for('debug', beh_id=beh.id, nazev=n) }}" alt="{{ n }}" loading="lazy">
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
