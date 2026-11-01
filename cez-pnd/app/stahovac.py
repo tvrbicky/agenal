@@ -148,9 +148,14 @@ def _vyber(page, okno, popisek: str, text: str, beh: "Beh", pokusu: int = 3) -> 
         beh.log(f"{popisek}: „{_vybrano(okno, popisek)}“ (už vybráno)")
         return
     pole = _pole(okno, popisek)
-    if pole.locator(".multiselect--disabled").count():
-        raise RuntimeError(f"Pole „{popisek}“ je v portálu zamčené (vybráno „{_vybrano(okno, popisek)}“) – "
-                           f"u této sestavy nejde měnit; je potřeba sestava s „{text}“")
+    for _ in range(20):  # portál pole odemyká až po načtení sestavy
+        if not pole.locator(".multiselect--disabled").count():
+            break
+        page.wait_for_timeout(500)
+    else:
+        beh.log(f"Pole „{popisek}“ je v portálu zamčené, pokračuji s „{_vybrano(okno, popisek)}“ "
+                f"(chtěli jsme „{text}“) – výsledek ověřte", "WARN")
+        return
     for pokus in range(pokusu):
         _klik(pole.locator(".multiselect").first)
         page.wait_for_timeout(400)
