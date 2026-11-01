@@ -148,7 +148,7 @@ def _vyber(page, okno, popisek: str, text: str, beh: "Beh", pokusu: int = 5) -> 
     for _ in range(pokusu):
         _klik(pole.locator(".multiselect__select, .multiselect__tags").first)
         page.wait_for_timeout(500)
-        moznosti = _texty(page, ".pnd-window .multiselect--active .multiselect__option")
+        moznosti = _nabidka(page, popisek)
         volba = pole.locator(".multiselect__option", has_text=text).first
         if not volba.count():
             raise RuntimeError(f"V poli „{popisek}“ není „{text}“; nabídka: {moznosti}")
@@ -167,6 +167,19 @@ def _texty(page, selektor: str) -> list[str]:
         return [t.strip() for t in page.evaluate(
             "s => Array.prototype.map.call(document.querySelectorAll(s), e => e.textContent || '')", selektor)
             if t and t.strip()]
+    except Exception:
+        return []
+
+
+def _nabidka(page, popisek: str) -> list[str]:
+    """Všechny položky multiselectu v prvním okně (čistým JS, bez otevírání nabídky)."""
+    try:
+        return [t.strip() for t in page.evaluate(
+            """p => { const w = document.querySelector('.pnd-window'); if (!w) return [];
+                const l = Array.prototype.find.call(w.querySelectorAll('label'), x => x.textContent.trim() === p);
+                const g = l && l.closest('.form-group'); if (!g) return [];
+                return Array.prototype.map.call(g.querySelectorAll('.multiselect__option'), e => e.textContent || ''); }""",
+            popisek) if t and t.strip()]
     except Exception:
         return []
 
@@ -235,6 +248,8 @@ def stahni_csv(beh: Beh) -> list[Path]:
             _klik(okno.locator(SELEKTORY["tlacitko_export"]).first)
             page.wait_for_timeout(1_000)
             _vyber(page, okno, "Sestava", SESTAVA, beh)
+            nabidka = _nabidka(page, "Množina zařízení")
+            beh.log("Množiny zařízení / elektroměry v účtu: " + (" | ".join(nabidka) or "(nepodařilo se načíst)"))
             if elm:
                 _vyber(page, okno, "Množina zařízení", elm, beh)
             else:
