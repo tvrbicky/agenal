@@ -31,8 +31,9 @@ DB = DATA / "behy.sqlite"
 
 PND_URL = os.environ.get("PND_URL", "https://pnd.cezdistribuce.cz/cezpnd2/external/dashboard/view")
 
-# Kroky portálu převzaté z ověřené komunitní integrace (ondrejvysek/HomeAssistant-CEZDistribuce-PND,
-# Selenium, stav 2025). Na našem účtu ještě neověřeno – první běh na VPS uloží snímky do data/debug.
+# Kroky portálu ověřené na účtu TCP 1. 11. 2026 (přihlášení přes mepas.cez.cz, dashboard má dvě okna
+# .pnd-window; pracujeme v prvním). Postup v okně: Export → Sestava → Množina zařízení → Vlastní období
+# → Vyhledat data → Exportovat data → CSV.
 SELEKTORY = {
     "cookies": "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowallSelection",
     "login_user": "input[placeholder='Zadejte svůj e-mail'], input[name='username'], input[type='email']",
@@ -42,13 +43,13 @@ SELEKTORY = {
     "modal_precteno": ".modal-dialog button:has-text('Přečteno')",
     "okno": ".pnd-window",
     "tlacitko_export": "button[title='Export']",
-    "tlacitko_tabulka": "button[title='Tabulka dat']",
     "vyhledat": "button:has-text('Vyhledat data')",
     "exportovat": "button:has-text('Exportovat data')",
-    "csv": "a:text-is('CSV')",
+    "csv": "a:text-is('CSV'):visible",
 }
-# Názvy profilů v „Rychlé sestavě“. Prázdné = vybere se automaticky první odkaz s (+A) resp. (-A),
-# který není denní souhrn. Seznam dostupných profilů se vždy zapíše do logu běhu.
+# „1/4 diagram“ = čtvrthodinový odběr i přetok v jednom exportu (stejné sloupce jako list 1_4_hod).
+# „Rychlá sestava“ = záložní cesta přes dva profily (+A) a (-A).
+SESTAVA = os.environ.get("PND_SESTAVA", "1/4 diagram")
 PROFIL_ODBER = os.environ.get("PND_PROFIL_ODBER", "")
 PROFIL_DODAVKA = os.environ.get("PND_PROFIL_DODAVKA", "")
 
@@ -113,31 +114,55 @@ def _ted() -> str:
 
 
 # ---------------------------------------------------------------- portál
-def _multiselect(page, popisek: str):
-    """Rozbalovací pole (vue-multiselect) podle textu labelu."""
-    return page.locator(f"label:has-text('{popisek}')").locator(
-        "xpath=following-sibling::div//div[contains(@class,'multiselect__select') or contains(@class,'multiselect__tags')]"
-    ).first
+def _klik(loc, timeout: int = 15_000) -> None:
+    """Klik; portál PND rozbíjí Playwrightí kontrolu „hit target“ (kHoverHitTarget…),
+    proto při chybě klikneme bez kontrol a nakonec čistým JS."""
+    try:
+        loc.click(timeout=timeout)
+    except Exception:
+        try:
+            loc.click(force=True, timeout=5_000)
+        except Exception:
+            loc.evaluate("e => e.click()")
 
 
-def _vyber(page, popisek: str, text: str, beh: "Beh", pokusu: int = 10) -> None:
+def _pole(okno, popisek: str):
+    """Skupina formuláře (label + vue-multiselect) podle přesného textu labelu."""
+    return okno.locator(f"label:text-is('{popisek}')").first.locator(
+        "xpath=ancestor::div[contains(@class,'form-group')][1]")
+
+
+def _vybrano(okno, popisek: str) -> str:
+    try:
+        return (_pole(okno, popisek).locator(".multiselect__single").first.text_content(timeout=2_000) or "").strip()
+    except Exception:
+        return ""
+
+
+def _vyber(page, okno, popisek: str, text: str, beh: "Beh", pokusu: int = 5) -> None:
     """Vybere položku v multiselectu; portál někdy první kliknutí ignoruje, proto opakování."""
-    for i in range(pokusu):
-        _multiselect(page, popisek).click()
-        page.locator(f"span.multiselect__option:has-text('{text}')").first.click(timeout=5_000)
-        page.locator("body").click(position={"x": 5, "y": 5})
-        vybrano = page.locator(f"label:has-text('{popisek}')").locator(
-            "xpath=ancestor::div[contains(@class,'form-group')]//span[contains(@class,'multiselect__single')]"
-        )
-        if vybrano.count() and text in (vybrano.first.text_content() or ""):
+    if text in _vybrano(okno, popisek):
+        beh.log(f"{popisek}: „{_vybrano(okno, popisek)}“ (už vybráno)")
+        return
+    pole = _pole(okno, popisek)
+    for _ in range(pokusu):
+        _klik(pole.locator(".multiselect__select, .multiselect__tags").first)
+        page.wait_for_timeout(500)
+        moznosti = _texty(page, ".pnd-window .multiselect--active .multiselect__option")
+        volba = pole.locator(".multiselect__option", has_text=text).first
+        if not volba.count():
+            raise RuntimeError(f"V poli „{popisek}“ není „{text}“; nabídka: {moznosti}")
+        _klik(volba)
+        page.wait_for_timeout(500)
+        if text in _vybrano(okno, popisek):
+            beh.log(f"{popisek}: „{_vybrano(okno, popisek)}“")
             return
-        page.wait_for_timeout(1_000)
     raise RuntimeError(f"Nepodařilo se vybrat „{text}“ v poli „{popisek}“")
 
 
 def _texty(page, selektor: str) -> list[str]:
-    """Texty prvků čistým JS v stránce – Playwrightí all_inner_texts na portálu PND padá
-    (TypeError kHoverHitTargetInterceptedError, portál přepisuje vestavěné funkce)."""
+    """Texty prvků čistým JS – Playwrightí all_inner_texts na portálu PND padá
+    (TypeError: kHoverHitTargetInterceptorEvents is not iterable)."""
     try:
         return [t.strip() for t in page.evaluate(
             "s => Array.prototype.map.call(document.querySelectorAll(s), e => e.textContent || '')", selektor)
@@ -155,8 +180,21 @@ def _najdi_profil(odkazy: list[str], zadany: str, znak: str) -> str:
     raise RuntimeError(f"Mezi profily není čtvrthodinový ({znak}); dostupné: {odkazy}. Nastavte PND_PROFIL_*.")
 
 
+def _export_csv(page, okno, cil: Path, beh: "Beh") -> Path:
+    _klik(okno.locator(SELEKTORY["exportovat"]).first)
+    page.wait_for_timeout(500)
+    formaty = _texty(page, ".pnd-window .dropdown-menu a")
+    if formaty:
+        beh.log("Formáty exportu: " + ", ".join(formaty))
+    with page.expect_download(timeout=180_000) as dl:
+        _klik(page.locator(SELEKTORY["csv"]).first)
+    dl.value.save_as(cil)
+    beh.log(f"Staženo {cil.name} ({cil.stat().st_size} B)")
+    return cil
+
+
 def stahni_csv(beh: Beh) -> list[Path]:
-    """Stáhne dva CSV exporty (odběr +A a dodávka -A) za období beh.od–beh.do."""
+    """Stáhne export za období beh.od–beh.do. Vrací 1 soubor (1/4 diagram) nebo 2 (profily +A, -A)."""
     from playwright.sync_api import sync_playwright
 
     user = os.environ["CEZ_USER"]
@@ -165,6 +203,7 @@ def stahni_csv(beh: Beh) -> list[Path]:
     CSV_DIR.mkdir(parents=True, exist_ok=True)
     debug = DEBUG_DIR / str(beh.id)
     obdobi = f"{beh.od:%d.%m.%Y} 00:00 - {beh.do + timedelta(days=1):%d.%m.%Y} 00:00"
+    zaklad = f"{beh.od:%Y%m%d}_{beh.do:%Y%m%d}_beh{beh.id}"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -174,41 +213,51 @@ def stahni_csv(beh: Beh) -> list[Path]:
             beh.log(f"Otevírám {PND_URL}")
             page.goto(PND_URL, wait_until="networkidle")
             if page.locator(SELEKTORY["cookies"]).count():
-                page.click(SELEKTORY["cookies"])
+                _klik(page.locator(SELEKTORY["cookies"]))
             _snimek(page, debug, "01_prihlaseni")
-            beh.log(f"Přihlašovací stránka: {page.url}")
+            beh.log(f"Přihlašovací stránka: {page.url.split('?')[0]}")
 
             beh.log(f"Přihlašuji se jako {user}")
             page.fill(SELEKTORY["login_user"], user)
             page.fill(SELEKTORY["login_heslo"], heslo)
-            page.click(SELEKTORY["login_odeslat"])
+            _klik(page.locator(SELEKTORY["login_odeslat"]).first)
             page.wait_for_selector(SELEKTORY["po_prihlaseni"], timeout=60_000)
             if page.locator(SELEKTORY["modal_precteno"]).count():
                 beh.log("Zavírám oznámení portálu (Přečteno)")
-                page.click(SELEKTORY["modal_precteno"])
+                _klik(page.locator(SELEKTORY["modal_precteno"]).first)
                 page.reload(wait_until="networkidle")
                 page.wait_for_selector(SELEKTORY["po_prihlaseni"], timeout=60_000)
+            page.wait_for_load_state("networkidle")
             _snimek(page, debug, "02_po_prihlaseni")
             beh.log(f"Přihlášení OK ({page.url})")
 
             okno = page.locator(SELEKTORY["okno"]).first
-            okno.locator(SELEKTORY["tlacitko_export"]).click()
-            _vyber(page, "Sestava", "Rychlá sestava", beh)
-            elmy = _texty(page, "span.multiselect__option")
-            beh.log("Elektroměry v účtu: " + ", ".join(t.strip() for t in elmy if t.strip().startswith("ELM")))
-            if elm:
-                _vyber(page, "Množina zařízení", elm, beh)
-            _vyber(page, "Období", "Vlastní", beh)
-            pole = page.locator("label:has-text('Vlastní období')").locator("xpath=following::input[1]")
-            pole.fill(obdobi)
-            pole.press("Tab")
-            beh.log(f"Elektroměr {elm or '(výchozí)'}, období {obdobi}")
-            _snimek(page, debug, "03_sestava")
-            page.click(SELEKTORY["vyhledat"])
-            page.wait_for_load_state("networkidle")
-            okno.locator(SELEKTORY["tlacitko_tabulka"]).click()
+            _klik(okno.locator(SELEKTORY["tlacitko_export"]).first)
             page.wait_for_timeout(1_000)
-            okno.locator(SELEKTORY["tlacitko_export"]).click()
+            _vyber(page, okno, "Sestava", SESTAVA, beh)
+            if elm:
+                _vyber(page, okno, "Množina zařízení", elm, beh)
+            else:
+                beh.log(f"Množina zařízení: „{_vybrano(okno, 'Množina zařízení')}“ (CEZ_ELM nevyplněno)", "WARN")
+            try:
+                _vyber(page, okno, "Období", "Vlastní", beh, pokusu=2)
+            except Exception as e:
+                beh.log(f"Období „Vlastní“ nevybráno ({e}), vyplňuji rovnou pole Vlastní období", "WARN")
+            pole = _pole(okno, "Vlastní období").locator("input").first
+            if not pole.count():
+                pole = okno.locator("label:text-is('Vlastní období')").locator("xpath=following::input[1]")
+            pole.fill(obdobi)
+            pole.press("Enter")
+            page.wait_for_timeout(500)
+            beh.log(f"Vlastní období: {pole.input_value()}")
+            _snimek(page, debug, "03_filtr")
+            _klik(okno.locator(SELEKTORY["vyhledat"]).first)
+            page.wait_for_load_state("networkidle")
+            page.wait_for_timeout(2_000)
+            _snimek(page, debug, "04_vysledek")
+
+            if "rychlá" not in SESTAVA.lower():
+                return [_export_csv(page, okno, CSV_DIR / f"pnd_{zaklad}.csv", beh)]
 
             odkazy = [t for t in _texty(page, ".pnd-window a") if "Profil" in t or "(+A)" in t or "(-A)" in t]
             beh.log("Dostupné profily: " + " | ".join(odkazy))
@@ -216,16 +265,10 @@ def stahni_csv(beh: Beh) -> list[Path]:
             for znak, zadany, nazev in (("+A", PROFIL_ODBER, "odber"), ("-A", PROFIL_DODAVKA, "dodavka")):
                 profil = _najdi_profil(odkazy, zadany, znak)
                 beh.log(f"Stahuji profil „{profil}“")
-                okno.locator(f"a:has-text('{profil}')").first.click()
+                _klik(okno.locator("a", has_text=profil).first)
                 page.wait_for_load_state("networkidle")
-                _snimek(page, debug, f"04_{nazev}")
-                page.click(SELEKTORY["exportovat"])
-                with page.expect_download(timeout=120_000) as dl:
-                    page.click(SELEKTORY["csv"])
-                cil = CSV_DIR / f"pnd_{nazev}_{beh.od:%Y%m%d}_{beh.do:%Y%m%d}_beh{beh.id}.csv"
-                dl.value.save_as(cil)
-                beh.log(f"Staženo {cil.name} ({cil.stat().st_size} B)")
-                soubory.append(cil)
+                _snimek(page, debug, f"05_{nazev}")
+                soubory.append(_export_csv(page, okno, CSV_DIR / f"pnd_{nazev}_{zaklad}.csv", beh))
             return soubory
         except Exception:
             _snimek(page, debug, "chyba")
@@ -380,7 +423,7 @@ def spust(od: date | None = None, do: date | None = None, spustil: str = "plán"
             df = nacti_csv(csv)
         else:
             soubory = stahni_csv(beh)
-            df = nacti_profily(*soubory)
+            df = nacti_csv(soubory[0]) if len(soubory) == 1 else nacti_profily(*soubory)
         beh.log(f"Načteno {len(df)} čtvrthodin ({df['cas'].min()} – {df['cas'].max()}), "
                 f"odběr {df['odber'].sum() / 4:.2f} kWh, dodávka {df['pretok'].sum() / 4:.2f} kWh")
         nok = df[df["status"] != "naměřená data OK"]
