@@ -1,0 +1,4 @@
+# Přidat do /etc/caddy/Caddyfile na VPS, pak: sudo systemctl reload caddy
+energie.golferis.cz {
+    reverse_proxy 127.0.0.1:8080
+}
