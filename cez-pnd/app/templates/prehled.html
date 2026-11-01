@@ -73,7 +73,7 @@
       <td class="stav {{ b.stav }}">{{ {'ok':'OK','chyba':'chyba','bezi':'běží'}[b.stav] }}</td>
       <td>{{ b.radku if b.radku is not none else '' }}</td>
       <td>{% if b.soubor %}<a href="{{ url_for('csv', nazev=b.soubor) }}">{{ b.soubor }}</a>{% endif %}</td>
-      <td class="sede">{{ (b.zprava or '')[:80] }}</td>
+      <td class="sede" title="{{ b.zprava or '' }}">{{ (b.zprava or '')[:80] }}{% if (b.zprava or '')|length > 80 %}… <a href="{{ url_for('detail', beh_id=b.id) }}">celá</a>{% endif %}</td>
     </tr>
     {% else %}
     <tr><td colspan="9" class="sede">Zatím žádný běh.</td></tr>

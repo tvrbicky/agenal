@@ -129,10 +129,21 @@ def _vyber(page, popisek: str, text: str, beh: "Beh", pokusu: int = 10) -> None:
         vybrano = page.locator(f"label:has-text('{popisek}')").locator(
             "xpath=ancestor::div[contains(@class,'form-group')]//span[contains(@class,'multiselect__single')]"
         )
-        if vybrano.count() and text in vybrano.first.inner_text():
+        if vybrano.count() and text in (vybrano.first.text_content() or ""):
             return
         page.wait_for_timeout(1_000)
     raise RuntimeError(f"Nepodařilo se vybrat „{text}“ v poli „{popisek}“")
+
+
+def _texty(page, selektor: str) -> list[str]:
+    """Texty prvků čistým JS v stránce – Playwrightí all_inner_texts na portálu PND padá
+    (TypeError kHoverHitTargetInterceptedError, portál přepisuje vestavěné funkce)."""
+    try:
+        return [t.strip() for t in page.evaluate(
+            "s => Array.prototype.map.call(document.querySelectorAll(s), e => e.textContent || '')", selektor)
+            if t and t.strip()]
+    except Exception:
+        return []
 
 
 def _najdi_profil(odkazy: list[str], zadany: str, znak: str) -> str:
@@ -183,7 +194,7 @@ def stahni_csv(beh: Beh) -> list[Path]:
             okno = page.locator(SELEKTORY["okno"]).first
             okno.locator(SELEKTORY["tlacitko_export"]).click()
             _vyber(page, "Sestava", "Rychlá sestava", beh)
-            elmy = page.locator("span.multiselect__option").all_inner_texts()
+            elmy = _texty(page, "span.multiselect__option")
             beh.log("Elektroměry v účtu: " + ", ".join(t.strip() for t in elmy if t.strip().startswith("ELM")))
             if elm:
                 _vyber(page, "Množina zařízení", elm, beh)
@@ -199,7 +210,7 @@ def stahni_csv(beh: Beh) -> list[Path]:
             page.wait_for_timeout(1_000)
             okno.locator(SELEKTORY["tlacitko_export"]).click()
 
-            odkazy = [t.strip() for t in okno.locator("a").all_inner_texts() if "Profil" in t or "(+A)" in t or "(-A)" in t]
+            odkazy = [t for t in _texty(page, ".pnd-window a") if "Profil" in t or "(+A)" in t or "(-A)" in t]
             beh.log("Dostupné profily: " + " | ".join(odkazy))
             soubory = []
             for znak, zadany, nazev in (("+A", PROFIL_ODBER, "odber"), ("-A", PROFIL_DODAVKA, "dodavka")):
