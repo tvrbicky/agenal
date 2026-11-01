@@ -139,24 +139,44 @@ def _vybrano(okno, popisek: str) -> str:
         return ""
 
 
-def _vyber(page, okno, popisek: str, text: str, beh: "Beh", pokusu: int = 5) -> None:
-    """Vybere položku v multiselectu; portál někdy první kliknutí ignoruje, proto opakování."""
+def _vyber(page, okno, popisek: str, text: str, beh: "Beh", pokusu: int = 3) -> None:
+    """Vybere položku ve vue-multiselectu: otevřít, napsat hledaný text, kliknout na shodu (nebo Enter).
+
+    Přednost má přesná shoda („ELM 90121971“ před „Elektroměr VT TCP 90121971“).
+    """
     if text in _vybrano(okno, popisek):
         beh.log(f"{popisek}: „{_vybrano(okno, popisek)}“ (už vybráno)")
         return
     pole = _pole(okno, popisek)
-    for _ in range(pokusu):
-        _klik(pole.locator(".multiselect__select, .multiselect__tags").first)
-        page.wait_for_timeout(500)
+    if pole.locator(".multiselect--disabled").count():
+        raise RuntimeError(f"Pole „{popisek}“ je v portálu zamčené (vybráno „{_vybrano(okno, popisek)}“) – "
+                           f"u této sestavy nejde měnit; je potřeba sestava s „{text}“")
+    for pokus in range(pokusu):
+        _klik(pole.locator(".multiselect").first)
+        page.wait_for_timeout(400)
+        vstup = pole.locator("input.multiselect__input").first
+        if vstup.count():
+            try:
+                vstup.fill(text, timeout=5_000)
+            except Exception:
+                vstup.press_sequentially(text, delay=30)
+            page.wait_for_timeout(600)
         moznosti = _nabidka(page, popisek)
-        volba = pole.locator(".multiselect__option", has_text=text).first
-        if not volba.count():
+        if moznosti and not any(text in m for m in moznosti):
             raise RuntimeError(f"V poli „{popisek}“ není „{text}“; nabídka: {moznosti}")
-        _klik(volba)
-        page.wait_for_timeout(500)
+        presne = [m for m in moznosti if m in (text, f"ELM {text}")]
+        cil = presne[0] if presne else next((m for m in moznosti if text in m), text)
+        volba = pole.locator(".multiselect__option:visible").filter(has_text=cil).first
+        if volba.count():
+            _klik(volba)
+        elif vstup.count():
+            vstup.press("Enter")
+        page.wait_for_timeout(600)
         if text in _vybrano(okno, popisek):
             beh.log(f"{popisek}: „{_vybrano(okno, popisek)}“")
             return
+        beh.log(f"{popisek}: pokus {pokus + 1} nevyšel (vybráno „{_vybrano(okno, popisek)}“)", "WARN")
+        page.keyboard.press("Escape")
     raise RuntimeError(f"Nepodařilo se vybrat „{text}“ v poli „{popisek}“")
 
 
